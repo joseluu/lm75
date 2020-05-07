@@ -8,20 +8,21 @@
 #ifndef TempI2C_LM75_h
 #define TempI2C_LM75_h
 
-
+#include <Wire.h>
 #include <inttypes.h>
 
+// taken from github.com/jlz3008/lm75
 
 class TempI2C_LM75 {
 	
 public: 
 	
     typedef enum {nine_bits = 0, ten_bits, eleven_bits, twelve_bits } Resolution;
-    typedef enum {comparator_mode=0, interrupt_mode } TermostatMode;
-    typedef enum {one_samples = 0, two_samples, four_samples, six_samples } TermostatFaultTolerance;
+    typedef enum {comparator_mode=0, interrupt_mode } ThermostatMode;
+    typedef enum {one_samples = 0, two_samples, four_samples, six_samples } ThermostatFaultTolerance;
     typedef enum {active_low = 0, active_high } OSPolarity;
 
-    TempI2C_LM75( uint8_t i2c_addr, Resolution resolution);
+    TempI2C_LM75( uint8_t i2c_addr, uint8_t _sda, uint8_t _scl);
 
     void init();
 
@@ -34,20 +35,23 @@ public:
     float getTHyst(void);
     float getTOS(void);
 
-    TermostatMode getTermostatMode();
-    void setTermostatMode(TermostatMode newMode);
+	ThermostatMode getThermostatMode();
+	void setThermostatMode(ThermostatMode newMode);
 
-    TermostatFaultTolerance getTermostatFaultTolerance();
-    void setTermostatFaultTolerance(TermostatFaultTolerance newFaultTolerance);
-
-    Resolution getResolution();
-    void setResolution(Resolution newResolution);
+	ThermostatFaultTolerance getThermostatFaultTolerance();
+	void setThermostatFaultTolerance(ThermostatFaultTolerance newFaultTolerance);
 
     OSPolarity getOSPolarity();
     void setOSPolarity(OSPolarity newOSPolarity);
-
+    
+    bool getShutdown();
+    void setShutdown(bool newShutdown);
+    bool isActive();
+    
+    static const uint8_t baseAddress = 0x48;
 private:
 
+    TwoWire *wire;
     typedef enum  {temp_reg=0, config_reg, THyst_reg, TOS_reg } LM75Register;
 
     typedef union _CfgRegister
@@ -55,18 +59,18 @@ private:
         struct
         {
             uint8_t shutdown:1;
-            uint8_t termostat_mode:1;
-            uint8_t termostat_output_polarity:1;
-            uint8_t termostat_fault_tolerance:2;
-            uint8_t resolution:2;
-            uint8_t reserved:1;
+			uint8_t thermostat_mode : 1;
+			uint8_t thermostat_output_polarity : 1;
+			uint8_t thermostat_fault_tolerance : 2;
+			uint8_t reserved : 3;
         } mbits;
 
         uint8_t mbyte;
 
     } CfgRegister;
 
-    unsigned getReg(LM75Register reg);
+	LM75Register previousReg = temp_reg;// default at initialization
+	unsigned short getReg(LM75Register reg);
     void setReg(LM75Register reg,unsigned newValue);
 
     uint8_t m_u8I2CAddr;

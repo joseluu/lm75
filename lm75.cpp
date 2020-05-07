@@ -6,15 +6,27 @@
 */
 
 
-#include <Wire.h>
 #include "lm75.h"
 #include <Arduino.h>
 
 
 //-------------------------------------------------------------------------------
-TempI2C_LM75::TempI2C_LM75( uint8_t i2c_addr, Resolution resolution)
+TempI2C_LM75::TempI2C_LM75( uint8_t i2c_addr,  uint8_t _sda, uint8_t _scl)
 {
-    Wire.begin();
+    if (_sda == 21) {
+        wire=&Wire1;
+    } else {
+        wire=&Wire;
+    }
+    wire->begin(_sda,_scl);
+    wire->setClock(100000);
+
+    wire->beginTransmission(i2c_addr);
+    wire->endTransmission();
+    if (wire->lastError() != I2C_ERROR_OK) {
+        m_u8I2CAddr=0;
+        return;
+    }
 
     m_u8I2CAddr = i2c_addr;
 }
@@ -22,76 +34,89 @@ TempI2C_LM75::TempI2C_LM75( uint8_t i2c_addr, Resolution resolution)
 //-------------------------------------------------------------------------------
 float TempI2C_LM75::getTemp()
 {
-    union
-    {
-        unsigned short tempX;
-        short tempS;
-    } temperature;
+	union {
+		unsigned short tempX;
+		short tempS;
+	} temperature;
 
-    temperature.tempX = getReg(temp_reg);
-    return (temperature.tempS / 256.0F);
+	temperature.tempX = getReg(temp_reg);
+	return (temperature.tempS / 256.0F);
 }
 
 //-------------------------------------------------------------------------------
-unsigned TempI2C_LM75::getReg(LM75Register reg)
+unsigned short TempI2C_LM75::getReg(LM75Register reg)
 {
-    unsigned Result = 0xFFFF;
-
+    unsigned short Result=0;
+    if ( m_u8I2CAddr == 0) {
+        return 0;
+    }
+#define DEBUG
 #ifdef DEBUG
-    Serial.print("getReg"); Serial.println(uint8_t(reg),HEX);
+    Serial.print("getReg(");
+    Serial.print(m_u8I2CAddr,HEX);
+    Serial.print(",");
+    Serial.print(uint8_t(reg),HEX);
+    Serial.print(")=");
 #endif
 
-    Wire.beginTransmission(m_u8I2CAddr);
-    Wire.write(reg); // pointer reg
-    Wire.endTransmission();
 
-    uint8_t c;
+    wire->beginTransmission(m_u8I2CAddr);
+    Serial.print(m_u8I2CAddr,HEX); Serial.println(wire->lastError());
+    wire->write(reg); // pointer reg
+    wire->endTransmission();
 
-    Wire.requestFrom(m_u8I2CAddr, uint8_t(2));
-    if(Wire.available())
+    uint8_t c=0;
+
+    wire->requestFrom(m_u8I2CAddr, uint8_t(2));
+    if(wire->available())
     {
-        c = Wire.read();
+        c = wire->read();
         Result = c;
         if(reg != config_reg)
         {
             Result = (unsigned(c))<<8;
-            if(Wire.available())
+            if(wire->available())
             {
-                c = Wire.read();
+                c = wire->read();
                 Result |= (unsigned(c));
             }
             else
             {
 #ifdef DEBUG
-                Serial.println("Error ");
+                Serial.println("Error 1");
 #endif
-                Result = 0xFFFF;
+                Result = 0;
             }
         }
     }
 #ifdef DEBUG
     else
-        Serial.println("Error");
+        Serial.println("Error 2");
 #endif
 
-
+    Serial.println(Result);
     return(Result);
 }
 //-------------------------------------------------------------------------------
-void TempI2C_LM75::setReg(LM75Register reg, unsigned newValue)
+bool TempI2C_LM75::setReg(LM75Register reg, unsigned newValue)
 {
 #ifdef DEBUG
-    Serial.print("setReg"); Serial.println(uint8_t(reg),HEX);
+    Serial.print("setReg(");
+    Serial.println(uint8_t(reg),HEX);
+    Serial.print(",");
+    Serial.println(newValue,HEX);
+    Serial.println(")");
 #endif
-    Wire.beginTransmission(m_u8I2CAddr);
-    Wire.write(reg); // pointer reg
+    wire->beginTransmission(m_u8I2CAddr);
+    wire->write(reg); // pointer reg
     if(reg != config_reg)
     {
-        Wire.write((newValue>>8) & 0xFF);
+        wire->write((newValue>>8) & 0xFF);
     }
-    Wire.write(newValue & 0xFF);
+    wire->write(newValue & 0xFF);
 
-    Wire.endTransmission();
+    wire->endTransmission();
+    return wire->lastError == I2C_ERROR_OK;
 }
 
 //-------------------------------------------------------------------------------
@@ -119,64 +144,63 @@ float TempI2C_LM75::getTOS(void)
 }
 
 //-------------------------------------------------------------------------------
-TempI2C_LM75::TermostatMode TempI2C_LM75::getTermostatMode()
+TempI2C_LM75::ThermostatMode TempI2C_LM75::getThermostatMode()
 {
     CfgRegister regv;
 
     regv.mbyte = getReg(config_reg);
 
-    return(TermostatMode(regv.mbits.termostat_mode));
+	return (ThermostatMode(regv.mbits.thermostat_mode));
 }
 
 //-------------------------------------------------------------------------------
-void TempI2C_LM75::setTermostatMode(TempI2C_LM75::TermostatMode newMode)
+void TempI2C_LM75::setThermostatMode(TempI2C_LM75::ThermostatMode newMode)
 {
     CfgRegister regv;
 
     regv.mbyte = getReg(config_reg);
-    regv.mbits.termostat_mode = newMode;
-
+	regv.mbits.thermostat_mode = newMode;
+	regv.mbits.reserved = 0;
     setReg(config_reg,unsigned(regv.mbyte));
 }
 
 //-------------------------------------------------------------------------------
-TempI2C_LM75::TermostatFaultTolerance TempI2C_LM75::getTermostatFaultTolerance()
+TempI2C_LM75::ThermostatFaultTolerance TempI2C_LM75::getThermostatFaultTolerance()
 {
     CfgRegister regv;
 
     regv.mbyte = getReg(config_reg);
 
-    return(TermostatFaultTolerance(regv.mbits.termostat_fault_tolerance));
+	return (ThermostatFaultTolerance(regv.mbits.thermostat_fault_tolerance));
 }
 
 //-------------------------------------------------------------------------------
-void TempI2C_LM75::setTermostatFaultTolerance(TermostatFaultTolerance newFaultTolerance)
+void TempI2C_LM75::setThermostatFaultTolerance(ThermostatFaultTolerance newFaultTolerance)
 {
     CfgRegister regv;
 
     regv.mbyte = getReg(config_reg);
-    regv.mbits.termostat_fault_tolerance = newFaultTolerance;
-
+	regv.mbits.thermostat_fault_tolerance = newFaultTolerance;
+	regv.mbits.reserved = 0;
     setReg(config_reg,unsigned(regv.mbyte));
 }
 
-//-------------------------------------------------------------------------------
-TempI2C_LM75::Resolution TempI2C_LM75::getResolution()
+bool TempI2C_LM75::getShutdown()
 {
     CfgRegister regv;
 
     regv.mbyte = getReg(config_reg);
 
-    return(Resolution(regv.mbits.resolution));
+	return (regv.mbits.shutdown);
 }
-//-------------------------------------------------------------------------------
-void TempI2C_LM75::setResolution(Resolution newResolution)
+
+void TempI2C_LM75::setShutdown(bool newShutdown)
 {
     CfgRegister regv;
 
     regv.mbyte = getReg(config_reg);
-    regv.mbits.resolution = newResolution;
-
+	regv.mbits.shutdown = newShutdown;
+	regv.mbits.reserved = 0;
     setReg(config_reg,unsigned(regv.mbyte));
 }
 
@@ -187,7 +211,7 @@ TempI2C_LM75::OSPolarity TempI2C_LM75::getOSPolarity()
 
     regv.mbyte = getReg(config_reg);
 
-    return(OSPolarity(regv.mbits.termostat_output_polarity));
+	return (OSPolarity(regv.mbits.thermostat_output_polarity));
 }
 
 //-------------------------------------------------------------------------------
@@ -196,8 +220,12 @@ void TempI2C_LM75::setOSPolarity(OSPolarity newOSPolarity)
     CfgRegister regv;
 
     regv.mbyte = getReg(config_reg);
-    regv.mbits.termostat_output_polarity = newOSPolarity;
-
+	regv.mbits.thermostat_output_polarity = newOSPolarity;
+	regv.mbits.reserved = 0;
     setReg(config_reg,unsigned(regv.mbyte));
 }
 
+bool TempI2C_LM75::isActive()
+{
+    return m_u8I2CAddr != 0;
+}
